@@ -36,7 +36,7 @@ class Database:
         SELECT code, name, total_equity, liquidity, total_value, liquidity_value,
                    sector, ipo_date, update_time, full_code, exchange_code
             FROM stock_info
-            WHERE code = '{stock_code}'
+            WHERE code = '{stock_code} ORDER BY code'
         """
         return pd.read_sql(sql_str, self.engine).to_dict(orient="records")[0] if pd.read_sql(sql_str, self.engine).shape[0] > 0 else None
 
