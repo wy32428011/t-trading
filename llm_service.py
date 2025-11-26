@@ -47,10 +47,10 @@ class LLMService:
                                stock_info: Dict[str, Any]) -> str:
         """构建分析提示词"""
 
+        # 只取最近5天的历史数据，减少上下文长度
         history_summary = "\n".join([
-            f"日期: {d['date']}, 开盘: {d['open']}, 最高: {d['high']}, 最低: {d['low']}, 收盘: {d['close']}, "
-            f"成交量: {d['volume']}, 涨跌幅: {d['pctChg']}%"
-            for d in history_data[:10]  # 只取最近10天的数据
+            f"{d['date']}: 收{round(d['close'], 2)}, 涨{d['pctChg']}%, 量{d['volume']}"
+            for d in history_data[:5]  # 只取最近5天的数据
         ])
 
         prompt = f"""
@@ -61,37 +61,26 @@ class LLMService:
 - 名称: {stock_data.get('name', '')}
 - 行业: {stock_info.get('sector', '') if stock_info else '未知'}
 - 总市值: {stock_data.get('total_market_value', 0)}万元
-- 流通市值: {stock_data.get('circulating_market_value', 0)}万元
-- 上市日期: {stock_info.get('ipo_date', '') if stock_info else '未知'}
+- 市盈率: {stock_data.get('pe_ratio', 0)}
+- 市净率: {stock_data.get('pb_ratio', 0)}
 
 实时数据：
 - 当前价格: {stock_data.get('current_price', 0)}
 - 涨跌幅: {stock_data.get('change_percent', 0)}%
-- 开盘价: {stock_data.get('open', 0)}
-- 最高价: {stock_data.get('high', 0)}
-- 最低价: {stock_data.get('low', 0)}
 - 成交量: {stock_data.get('volume_hand', 0)}手
-- 成交额: {stock_data.get('amount_10k', 0)}万元
 - 换手率: {stock_data.get('turnover_rate', 0)}%
-- 市盈率: {stock_data.get('pe_ratio', 0)}
-- 市净率: {stock_data.get('pb_ratio', 0)}
 
-历史数据（最近10天）：
+最近5天走势：
 {history_summary}
 
-请进行多角度分析：
-1. 基本面分析：评估公司财务状况、行业地位、估值水平
-2. 技术面分析：分析价格趋势、成交量变化、技术指标
-3. 市场情绪分析：考虑市场整体情绪和资金流向
-
-请给出具体的T+1交易建议，包括：
+请进行T+1选股分析，给出具体的交易建议，包括：
 - 建议（买入/卖出/保持）
-- 推荐原因（详细分析）
+- 推荐原因
 - 动作（买/卖/保持）
 - 预测价格（T+1）
 - 预测买入价格（T+1）
 - 预测卖出价格（T+1）
-- 预测信心（0-1之间的数值）
+- 预测信心（0-1）
 
 请以JSON格式返回结果，包含以下字段：
 recommendation, reason, action, predicted_price, predicted_buy_price, predicted_sell_price, confidence

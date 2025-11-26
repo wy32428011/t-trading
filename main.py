@@ -65,17 +65,72 @@ class StockAnalysisSystem:
         }
 
     def analyze_multiple_stocks(self, stock_codes: List[str],
-                                max_workers: int = 100) -> List[Dict[str, Any]]:
+                                max_workers: int = 50) -> List[Dict[str, Any]]:
         """分析多个股票"""
         from concurrent.futures import ThreadPoolExecutor
         
         results = []
-
+        
+        # 1. 批量获取股票基本信息
+        print(f"批量获取 {len(stock_codes)} 只股票的基本信息...")
+        stock_infos = self.db.get_batch_stock_info(stock_codes)
+        
+        # 2. 准备完整代码列表，过滤掉 full_code 为 None 的情况
+        full_codes = [info['full_code'] for code, info in stock_infos.items() if info and info.get('full_code')]
+        
+        # 3. 批量获取实时数据
+        print(f"批量获取 {len(full_codes)} 只股票的实时数据...")
+        real_time_data_dict = self.stock_fetcher.get_multiple_stocks_data(full_codes)
+        
+        # 4. 批量获取历史数据
+        print(f"批量获取 {len(full_codes)} 只股票的历史数据...")
+        history_data_dict = self.db.get_batch_stock_history(full_codes, days=30)
+        
+        # 5. 分析股票
         def analyze_stock(code):
             try:
-                result = self.analyze_single_stock(code)
-                print(f"完成分析: {code}")
-                return result
+                stock_info = stock_infos.get(code)
+                if not stock_info:
+                    return {
+                        'code': code,
+                        'name': '未知',
+                        'error': '未找到股票基本信息'
+                    }
+                
+                full_code = stock_info.get('full_code')
+                real_time_data = real_time_data_dict.get(full_code)
+                history_data = history_data_dict.get(full_code, [])
+                
+                if not real_time_data:
+                    return {
+                        'code': code,
+                        'name': stock_info.get('name', '未知'),
+                        'error': '获取实时数据失败'
+                    }
+                
+                if self.use_multi_role and self.multi_analyzer:
+                    analysis_result = self.multi_analyzer.analyze(
+                        real_time_data, history_data, stock_info
+                    )
+                else:
+                    analysis_result = self.llm_service.analyze_stock(
+                        real_time_data, history_data, stock_info
+                    )
+                
+                return {
+                    'code': code,
+                    'name': stock_info.get('name', '未知'),
+                    'analysis_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'current_price': real_time_data.get('current_price', 0),
+                    'change_percent': real_time_data.get('change_percent', 0),
+                    'recommendation': analysis_result.get('recommendation', '保持'),
+                    'reason': analysis_result.get('reason', ''),
+                    'action': analysis_result.get('action', '保持'),
+                    'predicted_price': analysis_result.get('predicted_price', 0),
+                    'predicted_buy_price': analysis_result.get('predicted_buy_price', 0),
+                    'predicted_sell_price': analysis_result.get('predicted_sell_price', 0),
+                    'confidence': analysis_result.get('confidence', 0.5)
+                }
             except Exception as e:
                 print(f"分析股票 {code} 时出错: {e}")
                 return {
@@ -83,10 +138,11 @@ class StockAnalysisSystem:
                     'name': '未知',
                     'error': str(e)
                 }
-
+        
+        print(f"开始分析 {len(stock_codes)} 只股票...")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             results = list(executor.map(analyze_stock, stock_codes))
-
+        
         return results
 
     def get_all_stocks_analysis(self, sample_size: int = None) -> List[Dict[str, Any]]:
@@ -132,7 +188,7 @@ def main():
     parser.add_argument('--stocks', '-l', type=str, nargs='+', help='分析多个股票代码')
     parser.add_argument('--all', '-a', action='store_true', help='分析所有股票')
     parser.add_argument('--sample', type=int, default=10, help='随机分析样本数量')
-    parser.add_argument('--output', '-o', type=str, default='stock_analysis_result.json',
+    parser.add_argument('--output', '-o', type=str, default=f'stock_analysis_result_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json',
                         help='输出结果文件名')
     parser.add_argument('--simple', action='store_true', help='使用简单分析模式')
 
