@@ -1,0 +1,16 @@
+[
+  {
+    "code": "000001",
+    "name": "平安银行",
+    "analysis_date": "2025-11-25 17:28:13",
+    "current_price": 11.8,
+    "change_percent": 1.72,
+    "recommendation": "保持",
+    "reason": "分析完成",
+    "action": "保持",
+    "predicted_price": 0.0,
+    "predicted_buy_price": 0.0,
+    "predicted_sell_price": 0.0,
+    "confidence": 0.5
+  }
+]
