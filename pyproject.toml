@@ -13,6 +13,7 @@ dependencies = [
     "pydantic-settings>=2.12.0",
     "pymysql>=1.1.2",
     "sqlalchemy>=2.0.44",
+    "tqdm>=4.66.0",
 ]
 
 [[tool.uv.index]]

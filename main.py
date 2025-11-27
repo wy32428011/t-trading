@@ -68,6 +68,7 @@ class StockAnalysisSystem:
                                 max_workers: int = 50) -> List[Dict[str, Any]]:
         """分析多个股票"""
         from concurrent.futures import ThreadPoolExecutor
+        from tqdm import tqdm
         
         results = []
         
@@ -141,8 +142,14 @@ class StockAnalysisSystem:
         
         print(f"开始分析 {len(stock_codes)} 只股票...")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            results = list(executor.map(analyze_stock, stock_codes))
-        
+            # 使用tqdm包装executor.map的结果，显示分析进度
+            with tqdm(total=len(stock_codes), desc="股票分析进度", unit="只", ncols=100) as pbar:
+                # 使用列表推导式和回调函数更新进度
+                results = []
+                for result in executor.map(analyze_stock, stock_codes):
+                    results.append(result)
+                    pbar.update(1)  # 更新进度条
+
         return results
 
     def get_all_stocks_analysis(self, sample_size: int = None) -> List[Dict[str, Any]]:

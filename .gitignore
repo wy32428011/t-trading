@@ -10,3 +10,5 @@ wheels/
 .venv
 uv.lock
 stock_analysis_results.json
+stock_analysis_result_20251127_072447.json
+stock_analysis_result_*.json
