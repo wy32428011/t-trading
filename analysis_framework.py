@@ -1,8 +1,9 @@
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.constants import END
 from langgraph.graph import StateGraph
+import time
 
-from llm_service import LLMService
+from llm_service import LLMService, llm_cache, CACHE_EXPIRY
 from typing import Dict, Any, List, TypedDict
 
 
@@ -67,7 +68,8 @@ class MultiRoleAnalyzer:
             HumanMessage(content=prompt)
         ])
         state['fundamental_analyst'] = response.content
-        print(f"基本面分析师: {response.content}")
+        # 只打印关键信息，减少输出开销
+        # print(f"基本面分析师: {response.content}")
         return state
 
     def technical_analysis_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -107,7 +109,8 @@ class MultiRoleAnalyzer:
             HumanMessage(content=prompt)
         ])
         state['technical_analysis'] = response.content
-        print(f"技术分析师: {response.content}")
+        # 只打印关键信息，减少输出开销
+        # print(f"技术分析师: {response.content}")
         return state
 
     def trader_analysis_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -136,7 +139,8 @@ class MultiRoleAnalyzer:
             HumanMessage(content=prompt)
         ])
         state['trader_analysis'] = response.content
-        print(f"交易员分析师: {response.content}")
+        # 只打印关键信息，减少输出开销
+        # print(f"交易员分析师: {response.content}")
         return state
 
     def final_decision_node(self, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -170,7 +174,8 @@ class MultiRoleAnalyzer:
             SystemMessage(content="你是首席投资官，需要综合各方分析做出最终投资决策。"),
             HumanMessage(content=prompt)
         ])
-        print(f"大模型最终决策结果: {response.content}")
+        # 只打印关键信息，减少输出开销
+        # print(f"大模型最终决策结果: {response.content}")
         final_result = self.llm_service._parse_response(response.content)
         state['final_recommendation'] = final_result
         return state
@@ -179,6 +184,18 @@ class MultiRoleAnalyzer:
                 history_data: List[Dict[str, Any]],
                 stock_info: Dict[str, Any]) -> Dict[str, Any]:
         """执行多角色分析"""
+
+        # 获取当前日期，作为缓存键的一部分
+        current_date = time.strftime("%Y-%m-%d")
+        # 构建缓存键：股票代码+日期+模式
+        cache_key = f"{stock_data.get('code', '')}_{current_date}_multi"
+        
+        # 检查缓存中是否存在有效的分析结果
+        if cache_key in llm_cache:
+            cached_result, timestamp = llm_cache[cache_key]
+            # 检查缓存是否过期
+            if time.time() - timestamp < CACHE_EXPIRY:
+                return cached_result
 
         try:
             result = self.graph.invoke(MessageState(
@@ -189,8 +206,12 @@ class MultiRoleAnalyzer:
                 technical_analysis_node="",
             ))
             # 直接从结果字典中获取final_recommendation
-            print(f"最终推荐结果: {result['final_recommendation']}")
-            return result["final_recommendation"]
+            # print(f"最终推荐结果: {result['final_recommendation']}")
+            final_result = result["final_recommendation"]
+            
+            # 将结果存入缓存
+            llm_cache[cache_key] = (final_result, time.time())
+            return final_result
         except Exception as e:
             print(f"多角色分析错误: {e}")
             return self.llm_service.analyze_stock(stock_data, history_data, stock_info)

@@ -65,12 +65,24 @@ class StockAnalysisSystem:
         }
 
     def analyze_multiple_stocks(self, stock_codes: List[str],
-                                max_workers: int = 50) -> List[Dict[str, Any]]:
-        """分析多个股票"""
+                                max_workers: int = 20, save_batch_size: int = None,
+                                output_file: str = None) -> List[Dict[str, Any]]:
+        """分析多个股票，支持分批保存结果
+        
+        Args:
+            stock_codes: 股票代码列表
+            max_workers: 并发工作线程数
+            save_batch_size: 每批保存的股票数量，None表示不分批保存
+            output_file: 输出文件名，None表示不保存
+        
+        Returns:
+            分析结果列表
+        """
         from concurrent.futures import ThreadPoolExecutor
         from tqdm import tqdm
         
         results = []
+        temp_results = []
         
         # 1. 批量获取股票基本信息
         print(f"批量获取 {len(stock_codes)} 只股票的基本信息...")
@@ -145,15 +157,42 @@ class StockAnalysisSystem:
             # 使用tqdm包装executor.map的结果，显示分析进度
             with tqdm(total=len(stock_codes), desc="股票分析进度", unit="只", ncols=100) as pbar:
                 # 使用列表推导式和回调函数更新进度
-                results = []
                 for result in executor.map(analyze_stock, stock_codes):
                     results.append(result)
+                    temp_results.append(result)
                     pbar.update(1)  # 更新进度条
+                    
+                    # 当临时结果达到批次大小时，保存结果
+                    if save_batch_size and output_file and len(temp_results) >= save_batch_size:
+                        self.save_results(temp_results, output_file, batch_size=save_batch_size, append=True)
+                        temp_results.clear()
+        
+        # 保存剩余的结果
+        if temp_results and save_batch_size and output_file:
+            self.save_results(temp_results, output_file, batch_size=save_batch_size, append=True)
+            temp_results.clear()
+        
+        # 如果使用了分批保存，需要在文件末尾添加]
+        if save_batch_size and output_file:
+            import os
+            if os.path.exists(output_file):
+                with open(output_file, 'a', encoding='utf-8') as f:
+                    f.write('\n]')
+                print(f"结果已全部保存到: {output_file}")
 
         return results
 
-    def get_all_stocks_analysis(self, sample_size: int = None) -> List[Dict[str, Any]]:
-        """分析所有股票"""
+    def get_all_stocks_analysis(self, sample_size: int = None, save_batch_size: int = None, output_file: str = None) -> List[Dict[str, Any]]:
+        """分析所有股票，支持分批保存结果
+        
+        Args:
+            sample_size: 随机分析样本数量
+            save_batch_size: 每批保存的股票数量，None表示不分批保存
+            output_file: 输出文件名，None表示不保存
+        
+        Returns:
+            分析结果列表
+        """
         all_codes = self.db.get_all_stock_codes()
 
         if sample_size and sample_size < len(all_codes):
@@ -161,13 +200,60 @@ class StockAnalysisSystem:
             all_codes = random.sample(all_codes, sample_size)
 
         print(f"开始分析 {len(all_codes)} 只股票...")
-        return self.analyze_multiple_stocks(all_codes)
+        return self.analyze_multiple_stocks(all_codes, save_batch_size=save_batch_size, output_file=output_file)
 
-    def save_results(self, results: List[Dict[str, Any]], filename: str):
-        """保存分析结果"""
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
-        print(f"结果已保存到: {filename}")
+    def save_results(self, results: List[Dict[str, Any]], filename: str, batch_size: int = None, append: bool = False):
+        """保存分析结果，支持分批写入
+        
+        Args:
+            results: 分析结果列表
+            filename: 输出文件名
+            batch_size: 每批写入的股票数量，None表示一次写入所有结果
+            append: 是否追加到现有文件
+        """
+        if not results:
+            return
+        
+        # 如果不使用分批写入，直接保存所有结果
+        if batch_size is None:
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(results, f, ensure_ascii=False, indent=2)
+            print(f"结果已保存到: {filename}")
+            return
+        
+        # 使用分批写入
+        import os
+        file_exists = os.path.exists(filename)
+        
+        # 首次写入或覆盖写入时，创建新文件并写入[
+        if not file_exists or not append:
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write('[\n')
+            append = True
+        else:
+            # 如果是追加写入，检查文件是否为空
+            with open(filename, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+            # 如果文件内容为空，写入[
+            if not content:
+                with open(filename, 'w', encoding='utf-8') as f:
+                    f.write('[\n')
+            # 如果文件内容不为空且不是以[结尾，说明之前有写入，需要添加逗号
+            elif not content.endswith('['):
+                with open(filename, 'a', encoding='utf-8') as f:
+                    f.write(',\n')
+        
+        # 分批写入结果
+        for i, result in enumerate(results):
+            with open(filename, 'a', encoding='utf-8') as f:
+                # 写入结果，最后一个结果不需要逗号
+                if i == len(results) - 1:
+                    json.dump(result, f, ensure_ascii=False, indent=2)
+                else:
+                    json.dump(result, f, ensure_ascii=False, indent=2)
+                    f.write(',\n')
+        
+        print(f"已保存 {len(results)} 条结果到: {filename}")
 
     def print_results(self, results: List[Dict[str, Any]]):
         """打印分析结果"""
@@ -198,6 +284,7 @@ def main():
     parser.add_argument('--output', '-o', type=str, default=f'stock_analysis_result_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json',
                         help='输出结果文件名')
     parser.add_argument('--simple', action='store_true', help='使用简单分析模式')
+    parser.add_argument('--save-batch-size', type=int, default=None, help='分批保存的批次大小，None表示一次写入所有结果')
 
     args = parser.parse_args()
 
@@ -206,15 +293,38 @@ def main():
     try:
         if args.stock:
             results = [system.analyze_single_stock(args.stock)]
+            system.print_results(results)
+            system.save_results(results, args.output)
         elif args.stocks:
-            results = system.analyze_multiple_stocks(args.stocks)
+            if args.save_batch_size:
+                # 使用分批保存
+                results = system.analyze_multiple_stocks(args.stocks, save_batch_size=args.save_batch_size, output_file=args.output)
+                system.print_results(results)
+            else:
+                # 不使用分批保存
+                results = system.analyze_multiple_stocks(args.stocks)
+                system.print_results(results)
+                system.save_results(results, args.output)
         elif args.all:
-            results = system.get_all_stocks_analysis()
+            if args.save_batch_size:
+                # 使用分批保存
+                results = system.get_all_stocks_analysis(save_batch_size=args.save_batch_size, output_file=args.output)
+                system.print_results(results)
+            else:
+                # 不使用分批保存
+                results = system.get_all_stocks_analysis()
+                system.print_results(results)
+                system.save_results(results, args.output)
         else:
-            results = system.get_all_stocks_analysis(sample_size=args.sample)
-
-        system.print_results(results)
-        system.save_results(results, args.output)
+            if args.save_batch_size:
+                # 使用分批保存
+                results = system.get_all_stocks_analysis(sample_size=args.sample, save_batch_size=args.save_batch_size, output_file=args.output)
+                system.print_results(results)
+            else:
+                # 不使用分批保存
+                results = system.get_all_stocks_analysis(sample_size=args.sample)
+                system.print_results(results)
+                system.save_results(results, args.output)
 
     except KeyboardInterrupt:
         print("\n用户中断分析")

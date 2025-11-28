@@ -60,49 +60,64 @@ class Database:
         if not stock_codes:
             return {}
         
-        # 使用IN子句批量查询
-        codes_str = "'" + "','".join(stock_codes) + "'"
-        sql_str = f"""
-        SELECT code, name, total_equity, liquidity, total_value, liquidity_value,
-                   sector, ipo_date, update_time, full_code, exchange_code
-            FROM stock_info
-            WHERE code IN ({codes_str})
-            ORDER BY code
-        """
+        results_dict = {}
+        # 分组处理，每组最多1000个股票代码，避免SQL查询过长
+        batch_size = 1000
+        for i in range(0, len(stock_codes), batch_size):
+            batch_codes = stock_codes[i:i+batch_size]
+            # 使用IN子句批量查询
+            codes_str = "'" + "','".join(batch_codes) + "'"
+            sql_str = f"""
+            SELECT code, name, total_equity, liquidity, total_value, liquidity_value,
+                       sector, ipo_date, update_time, full_code, exchange_code
+                FROM stock_info
+                WHERE code IN ({codes_str})
+                ORDER BY code
+            """
+            
+            results = pd.read_sql(sql_str, self.engine).to_dict(orient="records")
+            # 合并结果
+            for result in results:
+                results_dict[result['code']] = result
         
-        results = pd.read_sql(sql_str, self.engine).to_dict(orient="records")
-        return {result['code']: result for result in results}
+        return results_dict
 
     def get_batch_stock_history(self, full_codes: List[str], days: int = 30) -> Dict[str, List[Dict[str, Any]]]:
         """批量获取股票历史数据"""
         if not full_codes:
             return {}
         
-        # 使用IN子句批量查询
-        codes_str = "'" + "','".join(full_codes) + "'"
+        grouped_results = {}
+        # 分组处理，每组最多500个股票代码，避免SQL查询过长和内存占用过高
+        batch_size = 500
         end = datetime.now()
         start = end - timedelta(days=days)
+        start_date = start.strftime('%Y-%m-%d')
+        end_date = end.strftime('%Y-%m-%d')
         
-        sql_str =  f"""
-        SELECT date, code, open, high, low, close, preclose, volume, amount,
-                   adjustflag, turn, tradestatus, pctChg, peTTM, pbMRQ, psTTM,
-                   pcfNcfTTM, isST, update_time
-            FROM stock_daily
-            WHERE code IN ({codes_str})
-            AND date >= '{start.strftime('%Y-%m-%d')}'
-            AND date <= '{end.strftime('%Y-%m-%d')}'
-            ORDER BY code, date DESC
-        """
-        
-        results = pd.read_sql(sql_str, self.engine).to_dict(orient="records")
-        
-        # 按股票代码分组
-        grouped_results = {}
-        for result in results:
-            code = result['code']
-            if code not in grouped_results:
-                grouped_results[code] = []
-            grouped_results[code].append(result)
+        for i in range(0, len(full_codes), batch_size):
+            batch_codes = full_codes[i:i+batch_size]
+            # 使用IN子句批量查询
+            codes_str = "'" + "','".join(batch_codes) + "'"
+            sql_str =  f"""
+            SELECT date, code, open, high, low, close, preclose, volume, amount,
+                       adjustflag, turn, tradestatus, pctChg, peTTM, pbMRQ, psTTM,
+                       pcfNcfTTM, isST, update_time
+                FROM stock_daily
+                WHERE code IN ({codes_str})
+                AND date >= '{start_date}'
+                AND date <= '{end_date}'
+                ORDER BY code, date DESC
+            """
+            
+            results = pd.read_sql(sql_str, self.engine).to_dict(orient="records")
+            
+            # 按股票代码分组并合并结果
+            for result in results:
+                code = result['code']
+                if code not in grouped_results:
+                    grouped_results[code] = []
+                grouped_results[code].append(result)
         
         return grouped_results
 
